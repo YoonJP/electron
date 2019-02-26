@@ -2,7 +2,7 @@
 
 const { GitProcess } = require('dugite')
 const childProcess = require('child_process')
-const fs = require('fs')
+const fs = require('fs-extra')
 const klaw = require('klaw')
 const minimist = require('minimist')
 const path = require('path')
@@ -39,6 +39,28 @@ function spawnAndCheckExitCode (cmd, args, opts) {
   opts = Object.assign({ stdio: 'inherit' }, opts)
   const status = childProcess.spawnSync(cmd, args, opts).status
   if (status) process.exit(status)
+}
+
+function gnCheckConfig (config, env) {
+  const outDir = path.resolve(SOURCE_ROOT, '.gn-lint-cache', config)
+  const args = ['gen', outDir]
+  if (!fs.existsSync(outDir)) {
+    args.push(`--args=import("//electron/build/args/${config}.gn")`)
+  }
+  let result = childProcess.spawnSync('gn', args, { env, stdio: 'inherit' })
+  if (result.status === 0) {
+    const args = ['check', outDir, '//electron:electron_lib']
+    result = childProcess.spawnSync('gn', args, { env, stdio: 'inherit' })
+    if (result.status) {
+      console.log(`Error running 'gn ${args.join(' ')}'`)
+    }
+  } else {
+    console.log(`Error running 'gn ${args.join(' ')}'`)
+  }
+
+  if (result.status) {
+    process.exit(result.status)
+  }
 }
 
 const LINTERS = [ {
@@ -86,7 +108,7 @@ const LINTERS = [ {
     spawnAndCheckExitCode(cmd, args, { cwd: SOURCE_ROOT })
   }
 }, {
-  key: 'gn',
+  key: 'gn-format',
   roots: ['.'],
   test: filename => filename.endsWith('.gn') || filename.endsWith('.gni'),
   run: (opts, filenames) => {
@@ -114,12 +136,26 @@ const LINTERS = [ {
       process.exit(1)
     }
   }
+}, {
+  key: 'gn-check',
+  run: (opts) => {
+    const env = Object.assign({
+      CHROMIUM_BUILDTOOLS_PATH: path.resolve(SOURCE_ROOT, '..', 'buildtools'),
+      DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+    }, process.env)
+    // Users may not have depot_tools in PATH.
+    env.PATH = `${env.PATH}${path.delimiter}${DEPOT_TOOLS}`
+    console.log('Running gn check for testing builds...')
+    gnCheckConfig('testing', env)
+    console.log('Running gn check for debug builds...')
+    gnCheckConfig('debug', env)
+  }
 }]
 
 function parseCommandLine () {
   let help
   const opts = minimist(process.argv.slice(2), {
-    boolean: [ 'c++', 'javascript', 'python', 'gn', 'help', 'changed', 'fix', 'verbose', 'only' ],
+    boolean: [ 'c++', 'javascript', 'python', 'gn-check', 'gn-format', 'help', 'changed', 'fix', 'verbose', 'only' ],
     alias: { 'c++': ['cc', 'cpp', 'cxx'], javascript: ['js', 'es'], python: 'py', changed: 'c', help: 'h', verbose: 'v' },
     unknown: arg => { help = true }
   })
@@ -199,18 +235,23 @@ async function findFiles (args, linter) {
 async function main () {
   const opts = parseCommandLine()
 
-  // no mode specified? run 'em all
-  if (!opts['c++'] && !opts.javascript && !opts.python && !opts.gn) {
-    opts['c++'] = opts.javascript = opts.python = opts.gn = true
+  // no mode specified? run 'em all excpet gn-check,
+  // since it requires complete src/ checkout.
+  if (!opts['c++'] && !opts.javascript && !opts.python && !opts['gn-check'] && !opts['gn-format']) {
+    opts['c++'] = opts.javascript = opts.python = opts['gn-format'] = true
   }
 
   const linters = LINTERS.filter(x => opts[x.key])
 
   for (const linter of linters) {
-    const filenames = await findFiles(opts, linter)
-    if (filenames.length) {
-      if (opts.verbose) { console.log(`linting ${filenames.length} ${linter.key} ${filenames.length === 1 ? 'file' : 'files'}`) }
-      linter.run(opts, filenames)
+    if (linter.key === 'gn-check') {
+      linter.run(opts)
+    } else {
+      const filenames = await findFiles(opts, linter)
+      if (filenames.length) {
+        if (opts.verbose) { console.log(`linting ${filenames.length} ${linter.key} ${filenames.length === 1 ? 'file' : 'files'}`) }
+        linter.run(opts, filenames)
+      }
     }
   }
 }

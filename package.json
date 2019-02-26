@@ -55,7 +55,7 @@
     "lint:clang-format": "python script/run-clang-format.py -r -c atom/ chromium_src/ || (echo \"\\nCode not formatted correctly.\" && exit 1)",
     "lint:cpp": "node ./script/lint.js --cc",
     "lint:py": "node ./script/lint.js --py",
-    "lint:gn": "node ./script/lint.js --gn",
+    "lint:gn": "node ./script/lint.js --gn-format",
     "lint:docs": "remark docs -qf && npm run lint:js-in-markdown && npm run create-typescript-definitions && npm run lint:docs-relative-links",
     "lint:docs-relative-links": "python ./script/check-relative-doc-links.py",
     "lint:js-in-markdown": "standard-markdown docs",
@@ -103,6 +103,9 @@
     "*.{gn,gni}": [
       "python script/run-gn-format.py",
       "git add"
+    ],
+    "*.{gn,gni,h,c,cc,mm}": [
+      "node script/lint.js --gn-check --"
     ],
     "*.py": [
       "node script/lint.js --py --fix --only --",
