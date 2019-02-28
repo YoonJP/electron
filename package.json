@@ -104,9 +104,6 @@
       "python script/run-gn-format.py",
       "git add"
     ],
-    "*.{gn,gni,h,c,cc,mm}": [
-      "node script/lint.js --gn-check --"
-    ],
     "*.py": [
       "node script/lint.js --py --fix --only --",
       "git add"
